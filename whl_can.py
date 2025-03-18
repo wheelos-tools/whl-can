@@ -15,9 +15,9 @@
 # limitations under the License.
 
 
+import curses
 import threading
 import time
-import keyboard
 import logging
 
 from cyber.python.cyber_py3 import cyber
@@ -26,29 +26,36 @@ from modules.common_msgs.control_msgs import control_cmd_pb2
 CONTROL_TOPIC = "/apollo/control"
 
 SPEED_DELTA = 0.1
-STEERING_ANGLE_DELTA = 1
-
+STEERING_RATE_DELTA = 1
 
 class KeyboardController:
-    """Keyboard control class for listening and handling keyboard input using keyboard.read_event()."""
-
-    def __init__(self):
+    """
+    Curses-based keyboard controller, no root privileges required, suitable for Linux terminal environments.
+    Listens for key presses in non-blocking mode:
+      - w: Forward (accelerate)
+      - s: Backward (decelerate)
+      - a: Turn left (increase steering angle)
+      - d: Turn right (decrease steering angle)
+      - q: Exit the program
+    """
+    def __init__(self, screen, speed_delta=SPEED_DELTA, steering_rate_delta=STEERING_RATE_DELTA):
+        self.screen = screen
         self.running = True
         self.control_cmd_msg = control_cmd_pb2.ControlCommand()
         self.speed = 0
-        self.steering_angle = 0
+        self.steering_rate = 0
+        self.speed_delta = speed_delta
+        self.steering_rate_delta = steering_rate_delta
         self.lock = threading.Lock()
-
-        # Key mapping: call the corresponding function after pressing the key
-        self.control_map = {
-            "w": self.move_forward,
-            "s": self.move_backward,
-            "a": self.turn_left,
-            "d": self.turn_right,
-        }
-
-        logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
+
+        # Key mapping: map keys using ASCII codes
+        self.control_map = {
+            ord('w'): self.move_forward,
+            ord('s'): self.move_backward,
+            ord('a'): self.turn_left,
+            ord('d'): self.turn_right,
+        }
 
     def get_control_cmd(self):
         """Returns the latest control command message."""
@@ -56,72 +63,93 @@ class KeyboardController:
             return self.control_cmd_msg
 
     def start(self):
-        """Starts the keyboard listening thread using keyboard.read_event()."""
-        threading.Thread(target=self._listen_keyboard, daemon=True).start()
-        self.logger.info("Keyboard control started, press Esc to exit.")
+        """Starts keyboard listening, sets curses to non-blocking mode and starts the listening thread."""
+        self.screen.nodelay(True)  # Set non-blocking input
+        self.screen.keypad(True)
+        self.screen.addstr(0, 0, "Keyboard control started, press 'q' to exit.    ")
+        self.thread = threading.Thread(target=self._listen_keyboard, daemon=True)
+        self.thread.start()
 
     def stop(self):
         """Stops keyboard listening."""
         with self.lock:
             self.running = False
-        self.logger.info("Keyboard control stopped.")
+        self.screen.addstr(1, 0, "Keyboard control stopped.                    ")
 
     def _listen_keyboard(self):
-        """Loop reads keyboard events and processes the corresponding control logic."""
+        """Loop reads keyboard input and calls the corresponding control method based on the key pressed."""
         while self.running:
-            event = keyboard.read_event()  # Blocking call, wait for the next keyboard event
-            if event.event_type == keyboard.KEY_DOWN:
-                if event.name == "esc":
+            try:
+                key = self.screen.getch()  # Non-blocking call
+            except Exception as e:
+                print(f"Error reading keyboard input: {e}")
+                key = -1
+
+            if key != -1:
+                if key == ord('q'):
                     self.stop()
                     break
-                elif event.name in self.control_map:
+                elif key in self.control_map:
                     with self.lock:
-                        self.control_map[event.name]()
-            self.fill_control_cmd()
+                        self.control_map[key]()
+                self.fill_control_cmd()
+            time.sleep(0.05)
 
     def fill_control_cmd(self):
-        """Updates the current speed and steering_angle to the protobuf message."""
+        """Updates the current speed and steering_rate to the protobuf message."""
         with self.lock:
             self.control_cmd_msg.speed = self.speed
-            self.control_cmd_msg.steering_angle = self.steering_angle
+            self.control_cmd_msg.steering_rate = self.steering_rate
 
     def move_forward(self):
         """Forward control: increase speed."""
-        self.speed += SPEED_DELTA
-        self.logger.info("Forward: speed increased to %s", self.speed)
+        self.speed += self.speed_delta
+        self.screen.addstr(2, 0, f"Forward: speed increased to {self.speed:.2f}    ")
 
     def move_backward(self):
         """Backward control: decrease speed."""
-        self.speed -= SPEED_DELTA
-        self.logger.info("Backward: speed decreased to %s", self.speed)
+        self.speed -= self.speed_delta
+        self.screen.addstr(3, 0, f"Backward: speed decreased to {self.speed:.2f}    ")
 
     def turn_left(self):
         """Turn left control: increase steering angle."""
-        self.steering_angle += STEERING_ANGLE_DELTA
-        self.logger.info(
-            "Turn left: steering angle increased to %s", self.steering_angle)
+        self.steering_rate += self.steering_rate_delta
+        self.screen.addstr(4, 0, f"Turn left: steering angle increased to {self.steering_rate:.2f}    ")
 
     def turn_right(self):
         """Turn right control: decrease steering angle."""
-        self.steering_angle -= STEERING_ANGLE_DELTA
-        self.logger.info(
-            "Turn right: steering angle decreased to %s", self.steering_angle)
+        self.steering_rate -= self.steering_rate_delta
+        self.screen.addstr(5, 0, f"Turn right: steering angle decreased to {self.steering_rate:.2f}    ")
 
-
-if __name__ == "__main__":
+def main(screen):
+    # Configure logging at the program entry point
+    logging.basicConfig(level=logging.INFO)
     cyber.init()
-    node = cyber.Node("whl_can")
+    node = cyber.Node("can_easy")
     writer = node.create_writer(CONTROL_TOPIC, control_cmd_pb2.ControlCommand)
 
-    controller = KeyboardController()
+    # Pre-print the fixed format lines
+    screen.addstr(2, 0, "Forward: speed increased to 0.00    ")
+    screen.addstr(3, 0, "Backward: speed decreased to 0.00    ")
+    screen.addstr(4, 0, "Turn left: steering angle increased to 0.00    ")
+    screen.addstr(5, 0, "Turn right: steering angle decreased to 0.00    ")
+
+    controller = KeyboardController(screen)
     controller.start()
 
     try:
         while controller.running:
-            time.sleep(0.1)
             cmd = controller.get_control_cmd()
             writer.write(cmd)
+            time.sleep(0.1)
     except KeyboardInterrupt:
         controller.stop()
+    finally:
+        controller.stop()
+        cyber.shutdown()
 
-    logging.info("Program exited.")
+    screen.addstr(6, 0, "Program exited.                        ")
+
+if __name__ == "__main__":
+    # Use curses.wrapper to ensure proper initialization and cleanup of the curses environment
+    curses.wrapper(main)
