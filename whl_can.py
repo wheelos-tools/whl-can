@@ -28,6 +28,7 @@ CONTROL_TOPIC = "/apollo/control"
 SPEED_DELTA = 0.1
 STEERING_RATE_DELTA = 1
 
+
 class KeyboardController:
     """
     Curses-based keyboard controller, no root privileges required, suitable for Linux terminal environments.
@@ -38,6 +39,7 @@ class KeyboardController:
       - d: Turn right (decrease steering angle)
       - q: Exit the program
     """
+
     def __init__(self, screen, speed_delta=SPEED_DELTA, steering_rate_delta=STEERING_RATE_DELTA):
         self.screen = screen
         self.running = True
@@ -66,15 +68,18 @@ class KeyboardController:
         """Starts keyboard listening, sets curses to non-blocking mode and starts the listening thread."""
         self.screen.nodelay(True)  # Set non-blocking input
         self.screen.keypad(True)
-        self.screen.addstr(0, 0, "Keyboard control started, press 'q' to exit.    ")
-        self.thread = threading.Thread(target=self._listen_keyboard, daemon=True)
+        self.screen.addstr(
+            0, 0, "Keyboard control started, press 'q' to exit.    ")
+        self.thread = threading.Thread(
+            target=self._listen_keyboard, daemon=True)
         self.thread.start()
 
     def stop(self):
         """Stops keyboard listening."""
         with self.lock:
             self.running = False
-        self.screen.addstr(1, 0, "Keyboard control stopped.                    ")
+        self.screen.addstr(
+            1, 0, "Keyboard control stopped.                    ")
 
     def _listen_keyboard(self):
         """Loop reads keyboard input and calls the corresponding control method based on the key pressed."""
@@ -104,22 +109,23 @@ class KeyboardController:
     def move_forward(self):
         """Forward control: increase speed."""
         self.speed += self.speed_delta
-        self.screen.addstr(2, 0, f"Forward: speed increased to {self.speed:.2f}    ")
+        self.screen.addstr(2, 0, f"speed: {self.speed:.2f}    ")
 
     def move_backward(self):
         """Backward control: decrease speed."""
         self.speed -= self.speed_delta
-        self.screen.addstr(3, 0, f"Backward: speed decreased to {self.speed:.2f}    ")
+        self.screen.addstr(2, 0, f"speed: {self.speed:.2f}    ")
 
     def turn_left(self):
         """Turn left control: increase steering angle."""
         self.steering_rate += self.steering_rate_delta
-        self.screen.addstr(4, 0, f"Turn left: steering angle increased to {self.steering_rate:.2f}    ")
+        self.screen.addstr(3, 0, f"steer: {self.steering_rate:.2f}    ")
 
     def turn_right(self):
         """Turn right control: decrease steering angle."""
         self.steering_rate -= self.steering_rate_delta
-        self.screen.addstr(5, 0, f"Turn right: steering angle decreased to {self.steering_rate:.2f}    ")
+        self.screen.addstr(3, 0, f"steer: {self.steering_rate:.2f}    ")
+
 
 def main(screen):
     # Configure logging at the program entry point
@@ -129,10 +135,8 @@ def main(screen):
     writer = node.create_writer(CONTROL_TOPIC, control_cmd_pb2.ControlCommand)
 
     # Pre-print the fixed format lines
-    screen.addstr(2, 0, "Forward: speed increased to 0.00    ")
-    screen.addstr(3, 0, "Backward: speed decreased to 0.00    ")
-    screen.addstr(4, 0, "Turn left: steering angle increased to 0.00    ")
-    screen.addstr(5, 0, "Turn right: steering angle decreased to 0.00    ")
+    screen.addstr(2, 0, "speed: 0.00    ")
+    screen.addstr(3, 0, "steer: 0.00    ")
 
     controller = KeyboardController(screen)
     controller.start()
@@ -149,6 +153,7 @@ def main(screen):
         cyber.shutdown()
 
     screen.addstr(6, 0, "Program exited.                        ")
+
 
 if __name__ == "__main__":
     # Use curses.wrapper to ensure proper initialization and cleanup of the curses environment
